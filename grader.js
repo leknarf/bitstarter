@@ -21,9 +21,11 @@ References:
    - https://developer.mozilla.org/en-US/docs/JSON#JSON_in_Firefox_2
 */
 
+var util = require('util');
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -36,23 +38,38 @@ var assertFileExists = function(infile) {
     return instr;
 };
 
-var cheerioHtmlFile = function(htmlfile) {
-    return cheerio.load(fs.readFileSync(htmlfile));
-};
-
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
-var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
+var fetchUrl = function(program) {
+  console.log("Fetching HTML from URL");
+  rest.get(program.url).on('complete', function(result, response){
+    if (result instanceof Error) {
+      console.error('Error: ' + util.format(response.message));
+    } else {
+      program.html = result;
+      runChecks(program.html, program.checks);
+    }
+  });
+};
+
+var readFile = function(program) {
+  console.log("Loading html from file");
+  program.html = fs.readFileSync(program.file);
+  runChecks(program.html, program.checks);
+};
+
+var runChecks = function(html, checksfile, htmlAsFile) {
+    $ = cheerio.load(html);
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
         var present = $(checks[ii]).length > 0;
         out[checks[ii]] = present;
     }
-    return out;
+    var outJson = JSON.stringify(out, null, 4);
+    console.log(outJson);
 };
 
 var clone = function(fn) {
@@ -64,11 +81,14 @@ var clone = function(fn) {
 if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
-        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-f, --file <html_file>', 'Path to index.html', null, HTMLFILE_DEFAULT)
+        .option('-u, --url <url>', 'URL', null, null)
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    if (program.url !== null) {
+      fetchUrl(program)
+    } else {
+      readFile(program)
+    }
 } else {
-    exports.checkHtmlFile = checkHtmlFile;
+    exports.runChecks = runChecks;
 }
